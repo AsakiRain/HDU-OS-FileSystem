@@ -292,7 +292,7 @@ void my_mkdir(char *dirname) {
     fcb *buf = (fcb *) malloc(open_file_list[cur_dir_fd].length);
     do_read(cur_dir_fd, (int) open_file_list[cur_dir_fd].length, (char *) buf);
     // 检测是否重名
-    if (!IsNameExist(buf, (int) (open_file_list[cur_dir_fd].length / sizeof(fcb)), dirname)) {
+    if (!IsDirNameExist(buf, (int) (open_file_list[cur_dir_fd].length / sizeof(fcb)), dirname)) {
         return;
     }
 
@@ -304,29 +304,29 @@ void my_mkdir(char *dirname) {
 
     // 预先申请 open_file 资源
     int new_fd = GetFreeOpenfile();
-    if (new_fd < 0){
+    if (new_fd < 0) {
         printf("Error: No spare open file table entry, close some file and retry.\n");
         return;
     }
 
     // 创建一个临时的 fcb，之后会被回收
     fcb tmp_fcb = {
-        .filename = "",
-        .extname = "",
-        .attribute = 0,
-        .time = GetCurrentTime(),
-        .date = GetCurrentDate(),
-        .first = GetFreeBlock(),
-        .length = 0,
-        .free = 1,
+            .filename = "",
+            .extname = "",
+            .attribute = 0,
+            .time = GetCurrentTime(),
+            .date = GetCurrentDate(),
+            .first = GetFreeBlock(),
+            .length = 0,
+            .free = 1,
     };
     strcpy(tmp_fcb.filename, filename);
     strcpy(tmp_fcb.extname, "");
 
     // 预先保存 fcb 的 index
-    int fcb_index = (int)(open_file_list[cur_dir_fd].length / sizeof(fcb));
+    int fcb_index = (int) (open_file_list[cur_dir_fd].length / sizeof(fcb));
     // 写入父目录
-    do_write(cur_dir_fd, (char *)&tmp_fcb, sizeof(fcb), 2);
+    do_write(cur_dir_fd, (char *) &tmp_fcb, sizeof(fcb), 2);
 
     // 打开新目录
     AssignFCBtoUserOpen(&tmp_fcb, &open_file_list[new_fd], path);
@@ -334,21 +334,21 @@ void my_mkdir(char *dirname) {
     // 复用 tmp_fcb 写入两个默认的目录项
     strcpy(tmp_fcb.filename, ".");
     tmp_fcb.length = 2 * sizeof(fcb);
-    do_write(new_fd, (char *)&tmp_fcb, sizeof(fcb), 2);
+    do_write(new_fd, (char *) &tmp_fcb, sizeof(fcb), 2);
     strcpy(tmp_fcb.filename, "..");
     tmp_fcb.time = open_file_list[cur_dir_fd].time;
     tmp_fcb.date = open_file_list[cur_dir_fd].date;
     tmp_fcb.first = open_file_list[cur_dir_fd].first;
     tmp_fcb.length = open_file_list[cur_dir_fd].length;
-    do_write(new_fd, (char *)&tmp_fcb, sizeof(fcb), 2);
+    do_write(new_fd, (char *) &tmp_fcb, sizeof(fcb), 2);
 
     // 关闭新目录文件
-    if(!my_close(new_fd)){
+    if (!my_close(new_fd)) {
         return;
     }
 }
 
-int my_close(int fd){
+int my_close(int fd) {
     if (fd < 0 || fd >= MAX_OPEN_FILE) {
         printf("Error: Invalid file descriptor.\n");
         return -1;
@@ -368,16 +368,95 @@ int my_close(int fd){
         fcb *buf = (fcb *) malloc(open_file_list[cur_dir_fd].length);
         do_read(cur_dir_fd, (int) open_file_list[cur_dir_fd].length, (char *) buf);
 
-        int fcb_index = FindMyIndex(buf, (int) (open_file_list[cur_dir_fd].length / sizeof(fcb)), &tmp_fcb);
-        if(fcb_index < 0){
+        int fcb_index = FindFCBIndexByName(buf, (int) (open_file_list[cur_dir_fd].length / sizeof(fcb)),
+                                           tmp_fcb.filename, tmp_fcb.extname);
+        if (fcb_index < 0) {
             printf("Error: Cannot find the file fcb in parent dir.\n");
             return -1;
         }
-        open_file_list[cur_dir_fd].count = fcb_index * (int)sizeof(fcb);
-        do_write(cur_dir_fd, (char*)&tmp_fcb, sizeof(fcb), 1);
+        open_file_list[cur_dir_fd].count = fcb_index * (int) sizeof(fcb);
+        do_write(cur_dir_fd, (char *) &tmp_fcb, sizeof(fcb), 1);
     }
 
     // 释放 open_file
     open_file_list[fd].is_taken = 0;
     return 0;
+}
+
+void my_cd(char *dirname) {
+    if (open_file_list[cur_dir_fd].attribute == 1) {
+        printf("Error: Currently in a file, close it first.\n");
+        return;
+    }
+
+    if (strncmp(dirname, ".", 2) == 0) {
+        return; // cd . 时不用执行操作
+    } else if (strncmp(dirname, "..", 2) == 0) { // 回到上级目录
+        if (cur_dir_fd == 0) { // 根目录不回退
+            return;
+        }
+
+        char parent_dir_path[MAX_PATH_LEN + 1] = "";
+        GetParentDirPath(parent_dir_path);
+        int parent_fd_index = FindFDIndexByPath(parent_dir_path);
+        if (parent_fd_index < 0) {
+            printf("Error: Cannot find the parent dir.\n");
+            return;
+        }
+
+        // 回到上级目录
+        int tmp_fd = cur_dir_fd;
+        cur_dir_fd = parent_fd_index;
+        strcpy(cur_dir_path, parent_dir_path);
+        // 关闭当前目录
+        my_close(tmp_fd);
+    } else {
+        char new_path[MAX_PATH_LEN + 1] = "";
+        if (!ConcatPath(cur_dir_path, dirname, new_path)) {
+            return;
+        }
+
+        // 打开新目录
+        int new_fd = my_open(dirname);
+        if (open_file_list[new_fd].attribute == 1){
+            printf("Error: Not a directory.\n");
+            my_close(new_fd);
+            return;
+        }
+
+        cur_dir_fd = new_fd;
+        strncpy(cur_dir_path, new_path, sizeof(new_path));
+
+    }
+}
+
+int my_open(char *fullname) {
+    char filename[MAX_FILENAME_LEN] = "";
+    char extname[MAX_EXTNAME_LEN] = "";
+    // 检测是否是合法的文件名
+    if (!ParseName(fullname, 1, filename, extname)) {
+        return -1;
+    }
+
+    // 查找 fcb
+    open_file_list[cur_dir_fd].count = 0;
+    fcb *buf = (fcb *) malloc(open_file_list[cur_dir_fd].length);
+    do_read(cur_dir_fd, (int) open_file_list[cur_dir_fd].length, (char *) buf);
+    int fcb_index = FindFCBIndexByName(buf, (int) (open_file_list[cur_dir_fd].length / sizeof(fcb)), filename, extname);
+    if (fcb_index < 0) {
+        printf("Error: Cannot find the file fcb in parent dir.\n");
+        return -1;
+    }
+
+    // 预先申请 open_file 资源
+    int new_fd = GetFreeOpenfile();
+    if (new_fd < 0) {
+        printf("Error: No spare open file table entry, close some file and retry.\n");
+        return -1;
+    }
+
+    // 打开文件
+    AssignFCBtoUserOpen(&buf[fcb_index], &open_file_list[new_fd], cur_dir_path);
+
+    return new_fd;
 }

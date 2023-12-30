@@ -1,9 +1,32 @@
 #include <stdint.h>
 #include <time.h>
 #include <stdio.h>
+
 #include "fs.h"
 
-// 打印一个16位值的二进制表示
+#ifndef UTILS_H_
+#define UTILS_H_
+
+void PrintBinary(uint16_t value); // 打印一个16位值的二进制表示
+uint16_t GetCurrentDate(void);  // 获取 7-4-5 位的日期
+uint16_t GetCurrentTime(void);  // 获取 5-6-5 位的当前时间
+void GetDateString(uint16_t combined, char *date_str); // 逆操作，获取解析后的日期字符串
+void GetTimeString(uint16_t combined, char *time_str); // 逆操作，获取解析后的时间字符串
+
+void AssignFCBtoUserOpen(fcb *ptr, user_open *uo, char *dir); // 将 FCB 的内容拷贝到 USER_OPEN
+void ExportUserOpenToFCB(fcb *ptr, user_open *uo); // 逆操作，将USER_OPEN 中的 FCB 导出
+int ParseName(const char *name, unsigned short type, char *filename, char *extname); // 解析一个文件名的同时判断其是否合法
+int IsDirNameExist(fcb *buf, int len, const char *name); // 判断文件夹命名是否可用
+void GetFullName(fcb *ptr, char *fullname); // 获取文件的全名
+int ConcatPath(const char *path, const char *name, char *result); // 拼接文件夹路径
+int GetFreeOpenfile();          // 获取一个空闲的文件打开表项
+unsigned short GetFreeBlock();  // 获取一个空闲的磁盘块
+int FindFCBIndexByName(fcb *buf, int len, char *filename, char *extname); // 根据文件名查找FCB在目录中的下标
+int FindFDIndexByPath(const char *path); // 根据路径查找打开的文件夹
+void GetParentDirName(char *dirname); // 获取父目录的名字
+void GetParentDirPath(char *path); // 获取父目录的路径
+#endif
+
 void PrintBinary(uint16_t value) {
     for (int i = 15; i >= 0; i--) {
         printf("%d", (value >> i) & 1);
@@ -12,38 +35,6 @@ void PrintBinary(uint16_t value) {
         }
     }
     printf("\n");
-}
-
-uint16_t GetCurrentTime(void) {
-    time_t current_time;
-    struct tm *time_info;
-    uint16_t combined;
-
-    // 获取当前时间
-    time(&current_time);
-    time_info = localtime(&current_time);
-
-    // 将时间字段转换为BCD格式
-    combined = 0;
-    combined |= (time_info->tm_sec / 2) & 0x1F;
-    combined |= (time_info->tm_min & 0x3F) << 5;
-    combined |= (time_info->tm_hour & 0x1F) << 11;
-
-#ifdef BEBUG_THIS
-    printf("小时: %d\n", time_info->tm_hour);
-    PrintBinary((time_info->tm_hour & 0x1F) << 11);
-
-    printf("分钟: %d\n", time_info->tm_min);
-    PrintBinary((time_info->tm_min & 0x3F) << 5);
-
-    printf("秒: %d\n", time_info->tm_sec);
-    PrintBinary(time_info->tm_sec / 2 & 0x1F);
-
-    printf("combined:");
-    PrintBinary(combined);
-#endif
-
-    return combined;
 }
 
 uint16_t GetCurrentDate(void) {
@@ -78,6 +69,38 @@ uint16_t GetCurrentDate(void) {
     return combined;
 }
 
+uint16_t GetCurrentTime(void) {
+    time_t current_time;
+    struct tm *time_info;
+    uint16_t combined;
+
+    // 获取当前时间
+    time(&current_time);
+    time_info = localtime(&current_time);
+
+    // 将时间字段转换为BCD格式
+    combined = 0;
+    combined |= (time_info->tm_sec / 2) & 0x1F;
+    combined |= (time_info->tm_min & 0x3F) << 5;
+    combined |= (time_info->tm_hour & 0x1F) << 11;
+
+#ifdef BEBUG_THIS
+    printf("小时: %d\n", time_info->tm_hour);
+    PrintBinary((time_info->tm_hour & 0x1F) << 11);
+
+    printf("分钟: %d\n", time_info->tm_min);
+    PrintBinary((time_info->tm_min & 0x3F) << 5);
+
+    printf("秒: %d\n", time_info->tm_sec);
+    PrintBinary(time_info->tm_sec / 2 & 0x1F);
+
+    printf("combined:");
+    PrintBinary(combined);
+#endif
+
+    return combined;
+}
+
 void GetDateString(uint16_t combined, char *date_str) {
     struct tm time_info;
 
@@ -103,23 +126,23 @@ void GetTimeString(uint16_t combined, char *time_str) {
 }
 
 void AssignFCBtoUserOpen(fcb *ptr, user_open *uo, char *dir) {
-    strcpy(uo->filename, ptr->filename);
-    strcpy(uo->extname, ptr->extname);
+    strncpy(uo->filename, ptr->filename, MAX_FILENAME_LEN);
+    strncpy(uo->extname, ptr->extname, MAX_EXTNAME_LEN);
     uo->attribute = ptr->attribute;
     uo->time = ptr->time;
     uo->date = ptr->date;
     uo->first = ptr->first;
     uo->length = ptr->length;
 
-    strcpy(uo->dir, dir);
+    strncpy(uo->dir, dir, MAX_PATH_LEN);
     uo->count = 0;
     uo->fcb_state = 0;
     uo->is_taken = 1;
 }
 
 void ExportUserOpenToFCB(fcb *ptr, user_open *uo) {
-    strcpy(ptr->filename, uo->filename);
-    strcpy(ptr->extname, uo->extname);
+    strncpy(ptr->filename, uo->filename, MAX_FILENAME_LEN);
+    strncpy(ptr->extname, uo->extname, MAX_EXTNAME_LEN);
     ptr->attribute = uo->attribute;
     ptr->time = uo->time;
     ptr->date = uo->date;
@@ -170,18 +193,18 @@ int ParseName(const char *name, unsigned short type, char *filename, char *extna
     return 1;
 }
 
-int IsNameExist(fcb *buf, int len, const char *name) {
+int IsDirNameExist(fcb *buf, int len, const char *name) {
     for (int i = 0; i < len; i++) {
         if (buf[i].free == 1) {
             if (buf[i].attribute == 0) {
-                if (strcmp(buf[i].filename, name) == 0) {
+                if (strncmp(buf[i].filename, name, MAX_FILENAME_LEN) == 0) {
                     printf("Error: Directory already exists.\n");
                     return 0;
                 }
             } else if (buf[i].attribute == 1) {
-                char fullname[11] = "";
+                char fullname[MAX_FILENAME_LEN + MAX_EXTNAME_LEN + 1] = "";
                 GetFullName(&buf[i], fullname);
-                if (strcmp(fullname, name) == 0) {
+                if (strncmp(fullname, name, sizeof(fullname)) == 0) {
                     printf("Error: Cannot create directory with the same name as a file.\n");
                     return 0;
                 }
@@ -248,17 +271,51 @@ unsigned short GetFreeBlock() {
     return FILE_EOF;
 }
 
-int FindMyIndex(fcb *buf, int len, fcb *ptr) {
-    char fullname[11] = "";
-    GetFullName(ptr, fullname);
+int FindFCBIndexByName(fcb *buf, int len, char *filename, char *extname) {
+    char fullname[MAX_FILENAME_LEN + MAX_EXTNAME_LEN + 1] = "";
+    char target_name[MAX_FILENAME_LEN + MAX_EXTNAME_LEN + 1] = "";
+    snprintf(fullname, sizeof(fullname), "%s.%s", filename, extname);
 
     for (int i = 0; i < len; i++) {
-        char target_name[11] = "";
         GetFullName(&buf[i], target_name);
-        if (strcmp(fullname, target_name) == 0){
+        if (strncmp(fullname, target_name, sizeof(fullname)) == 0) {
             return i;
         }
     }
-
     return -1;
+}
+
+int FindFDIndexByPath(const char *path) {
+    for (int i = 0; i < MAX_OPEN_FILE; i++) {
+        if (open_file_list[i].is_taken == 1) {
+            if (strncmp(open_file_list[i].dir, path, MAX_PATH_LEN) == 0) {
+                return i;
+            }
+        }
+    }
+    return -1;
+}
+
+void GetParentDirName(char *dirname) {
+    // 最后一个字符是 '/'，使用 - 1避开
+    int len = strlen(cur_dir_path) - 1;
+    int last_separator = -1;
+    for (int i = 0; i < len ; i++) {
+        if (cur_dir_path[i] == '/') {
+            last_separator = i;
+        }
+    }
+    strncpy(dirname, cur_dir_path + last_separator, len - last_separator);
+}
+
+void GetParentDirPath(char *path) {
+    // 最后一个字符是 '/'，使用 - 1避开
+    int len = (int)strlen(cur_dir_path) - 1;
+    int last_separator = -1;
+    for (int i = 0; i < len ; i++) {
+        if (cur_dir_path[i] == '/') {
+            last_separator = i;
+        }
+    }
+    strncpy(path, cur_dir_path, last_separator + 1);
 }

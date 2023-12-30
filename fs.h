@@ -86,11 +86,4 @@ int my_read(int fd);            // 读文件
 int do_read(int fd, int len, char *text); // 实际读文件
 void exit_sys();                // 退出文件系统
 
-unsigned short GetFreeBlock();  // 获取一个空闲的磁盘块
-int GetFreeOpenfile();          // 获取一个空闲的文件打开表项
-int ParseName(const char *name, unsigned short type, char *filename, char *extname); // 判断文件名是否合法
-int IsNameExist(fcb *buf, int len, const char *name);   // 判断文件名是否存在
-void GetFullName(fcb *ptr, char *fullname);             // 获取文件的全名
-int ConcatPath(const char *path, const char *name, char *result); // 拼接路径
-
 #endif
